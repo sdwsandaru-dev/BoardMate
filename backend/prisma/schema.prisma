@@ -1,0 +1,285 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  STUDENT
+  OWNER
+  ADMIN
+}
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum PropertyStatus {
+  DRAFT
+  PENDING_APPROVAL
+  PUBLISHED
+  REJECTED
+  SUSPENDED
+  ARCHIVED
+}
+
+enum PropertyType {
+  BOARDING_HOUSE
+  ANNEX
+  HOSTEL
+  APARTMENT
+  SHARED_ROOM
+  PRIVATE_ROOM
+}
+
+enum RoomStatus {
+  AVAILABLE
+  OCCUPIED
+  UNAVAILABLE
+}
+
+model User {
+  id           String        @id @default(uuid()) @db.Uuid
+  fullName     String        @map("full_name")
+  email        String        @unique
+  passwordHash String        @map("password_hash")
+  phone        String?
+  role         UserRole      @default(STUDENT)
+  status       AccountStatus @default(ACTIVE)
+
+  studentProfile StudentProfile?
+  ownerProfile   OwnerProfile?
+
+  properties Property[] @relation("PropertyOwner")
+  favorites  Favorite[]
+  bookings   Booking[]
+  reviews    Review[]
+  notifications Notification[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model University {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  city      String
+  latitude  Float?
+  longitude Float?
+
+  students   StudentProfile[]
+  properties Property[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([city])
+  @@map("universities")
+}
+
+model StudentProfile {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @db.Uuid @map("user_id")
+  universityId String?  @db.Uuid @map("university_id")
+  budgetMin    Decimal? @db.Decimal(10, 2) @map("budget_min")
+  budgetMax    Decimal? @db.Decimal(10, 2) @map("budget_max")
+  preferredCity String? @map("preferred_city")
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  university University? @relation(fields: [universityId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("student_profiles")
+}
+
+model OwnerProfile {
+  id                 String             @id @default(uuid()) @db.Uuid
+  userId             String             @unique @db.Uuid @map("user_id")
+  verificationStatus VerificationStatus @default(PENDING) @map("verification_status")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("owner_profiles")
+}
+
+model Property {
+  id                String         @id @default(uuid()) @db.Uuid
+  ownerId           String         @db.Uuid @map("owner_id")
+  universityId      String?        @db.Uuid @map("university_id")
+  title             String
+  slug              String         @unique
+  description       String
+  propertyType      PropertyType   @map("property_type")
+  address           String?
+  city              String
+  monthlyRent       Decimal        @db.Decimal(10, 2) @map("monthly_rent")
+  securityDeposit   Decimal?       @db.Decimal(10, 2) @map("security_deposit")
+  latitude          Float?
+  longitude         Float?
+  mapUrl            String?        @db.VarChar(500) @map("map_url")
+  status            PropertyStatus @default(DRAFT)
+  verificationStatus VerificationStatus @default(PENDING) @map("verification_status")
+
+  owner      User        @relation("PropertyOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  university University? @relation(fields: [universityId], references: [id], onDelete: SetNull)
+
+  rooms   Room[]
+  images  PropertyImage[]
+  favorites Favorite[]
+  bookings Booking[]
+  reviews  Review[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([city, status])
+  @@index([monthlyRent])
+  @@index([universityId])
+  @@map("properties")
+}
+
+model Room {
+  id           String     @id @default(uuid()) @db.Uuid
+  propertyId   String     @db.Uuid @map("property_id")
+  name         String
+  roomType     String     @map("room_type")
+  capacity     Int        @default(1)
+  monthlyRent  Decimal    @db.Decimal(10, 2) @map("monthly_rent")
+  status       RoomStatus @default(AVAILABLE)
+
+  property Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+  images   PropertyImage[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([propertyId, status])
+  @@map("rooms")
+}
+
+model PropertyImage {
+  id         String @id @default(uuid()) @db.Uuid
+  propertyId String  @db.Uuid @map("property_id")
+  // Set when the photo shows a specific room; null for general property photos.
+  roomId     String? @db.Uuid @map("room_id")
+  imageUrl   String  @map("image_url")
+  sortOrder  Int     @default(0) @map("sort_order")
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  // Deleting a room keeps its photos as general property photos.
+  room     Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([propertyId])
+  @@index([roomId])
+  @@map("property_images")
+}
+
+model Favorite {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid @map("user_id")
+  propertyId String @db.Uuid @map("property_id")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, propertyId])
+  @@map("favorites")
+}
+
+model Booking {
+  id          String   @id @default(uuid()) @db.Uuid
+  studentId   String   @db.Uuid @map("student_id")
+  propertyId  String   @db.Uuid @map("property_id")
+  roomId      String   @db.Uuid @map("room_id")
+  moveInDate  DateTime @db.Date @map("move_in_date")
+  moveOutDate DateTime? @db.Date @map("move_out_date")
+  status      String   @default("PENDING")
+  message     String?
+
+  student  User     @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  room     Room     @relation(fields: [roomId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([studentId, status])
+  @@index([roomId, status])
+  @@map("bookings")
+}
+
+model Review {
+  id         String   @id @default(uuid()) @db.Uuid
+  studentId  String   @db.Uuid @map("student_id")
+  propertyId String   @db.Uuid @map("property_id")
+  rating     Int
+  comment    String?
+
+  student  User     @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([studentId, propertyId])
+  @@index([propertyId, rating])
+  @@map("reviews")
+}
+
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid @map("user_id")
+  type      String
+  title     String   @db.VarChar(150)
+  message   String   @db.VarChar(1000)
+  data      Json?
+  isRead    Boolean  @default(false) @map("is_read")
+  readAt    DateTime? @map("read_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid()) @db.Uuid
+  actorId        String   @db.Uuid @map("actor_id")
+  action         String   @db.VarChar(100)
+  resourceType   String   @db.VarChar(50) @map("resource_type")
+  resourceId     String   @db.VarChar(100) @map("resource_id")
+  description    String   @db.VarChar(1000)
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}
